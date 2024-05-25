@@ -15,7 +15,7 @@ from typing import (
 
 import pendulum
 from fastapi.encoders import jsonable_encoder
-from pydantic import ConfigDict, TypeAdapter, ValidationError
+from pydantic import TypeAdapter
 from starlette.responses import JSONResponse
 from starlette.templating import (
     _TemplateResponse as TemplateResponse,  # pyright: ignore[reportPrivateUsage]
@@ -88,20 +88,6 @@ class Coder:
 
         """
         result = cls.decode(value)
-        if type_ is not None:
-            try:
-                type_adapter = cls._type_field_cache[type_]
-            except KeyError:
-                type_adapter = TypeAdapter(
-                    type_, config=ConfigDict(arbitrary_types_allowed=True)
-                )
-                cls._type_field_cache[type_] = type_adapter
-            try:
-                result = type_adapter.validate_python(result)
-            except ValidationError as errors:
-                if not isinstance(errors.errors(), list):
-                    errors = [errors.errors()]
-                raise ValidationError(errors.errors(), type_)
         return result
 
 
