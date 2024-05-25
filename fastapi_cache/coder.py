@@ -1,3 +1,4 @@
+import dataclasses
 import datetime
 import json
 import pickle  # nosec:B403
@@ -15,7 +16,7 @@ from typing import (
 
 import pendulum
 from fastapi.encoders import jsonable_encoder
-from pydantic import TypeAdapter
+from pydantic import BaseModel, ConfigDict, TypeAdapter
 from starlette.responses import JSONResponse
 from starlette.templating import (
     _TemplateResponse as TemplateResponse,  # pyright: ignore[reportPrivateUsage]
@@ -88,6 +89,28 @@ class Coder:
 
         """
         result = cls.decode(value)
+        if type_ is not None:
+            try:
+                type_adapter = cls._type_field_cache[type_]
+            except KeyError:
+                does_not_except_config_argument = (
+                    dataclasses.is_dataclass(type_)  # is dataclass
+                    or (
+                        isinstance(type_, dict)
+                        and hasattr(type_, "__annotations__")
+                    )  # is TypedDict
+                    or (
+                        isinstance(type_, type) and issubclass(type_, BaseModel)
+                    )  # is Pydantic model
+                )
+                if does_not_except_config_argument:
+                    type_adapter = TypeAdapter(type_)
+                else:
+                    type_adapter = TypeAdapter(
+                        type_, config=ConfigDict(arbitrary_types_allowed=True)
+                    )
+                cls._type_field_cache[type_] = type_adapter
+            result = type_adapter.validate_python(result)
         return result
 
 
