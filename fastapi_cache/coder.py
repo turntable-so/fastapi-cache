@@ -15,14 +15,13 @@ from typing import (
 
 import pendulum
 from fastapi.encoders import jsonable_encoder
-from pydantic import BaseConfig, ValidationError, fields
+from pydantic import ConfigDict, TypeAdapter, ValidationError
 from starlette.responses import JSONResponse
 from starlette.templating import (
     _TemplateResponse as TemplateResponse,  # pyright: ignore[reportPrivateUsage]
 )
 
 _T = TypeVar("_T", bound=type)
-
 
 CONVERTERS: Dict[str, Callable[[str], Any]] = {
     # Pendulum 3.0.0 adds parse to __all__, at which point these ignores can be removed
@@ -69,20 +68,20 @@ class Coder:
     # decode_as_type method and then stores a different kind of field for a
     # given type, do make sure that the subclass provides its own class
     # attribute for this cache.
-    _type_field_cache: ClassVar[Dict[Any, fields.ModelField]] = {}
+    _type_field_cache: ClassVar[Dict[Any, TypeAdapter[Any]]] = {}
 
     @overload
     @classmethod
-    def decode_as_type(cls, value: bytes, *, type_: _T) -> _T:
-        ...
+    def decode_as_type(cls, value: bytes, *, type_: _T) -> _T: ...
 
     @overload
     @classmethod
-    def decode_as_type(cls, value: bytes, *, type_: None) -> Any:
-        ...
+    def decode_as_type(cls, value: bytes, *, type_: None) -> Any: ...
 
     @classmethod
-    def decode_as_type(cls, value: bytes, *, type_: Optional[_T]) -> Union[_T, Any]:
+    def decode_as_type(
+        cls, value: bytes, *, type_: Optional[_T]
+    ) -> Union[_T, Any]:
         """Decode value to the specific given type
 
         The default implementation uses the Pydantic model system to convert the value.
@@ -91,16 +90,18 @@ class Coder:
         result = cls.decode(value)
         if type_ is not None:
             try:
-                field = cls._type_field_cache[type_]
+                type_adapter = cls._type_field_cache[type_]
             except KeyError:
-                field = cls._type_field_cache[type_] = fields.ModelField(
-                    name="body", type_=type_, class_validators=None, model_config=BaseConfig
+                type_adapter = TypeAdapter(
+                    type_, config=ConfigDict(arbitrary_types_allowed=True)
                 )
-            result, errors = field.validate(result, {}, loc=())
-            if errors is not None:
-                if not isinstance(errors, list):
-                    errors = [errors]
-                raise ValidationError(errors, type_)
+                cls._type_field_cache[type_] = type_adapter
+            try:
+                result = type_adapter.validate_python(result)
+            except ValidationError as errors:
+                if not isinstance(errors.errors(), list):
+                    errors = [errors.errors()]
+                raise ValidationError(errors.errors(), type_)
         return result
 
 
